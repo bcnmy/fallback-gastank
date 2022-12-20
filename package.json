@@ -1,0 +1,19 @@
+{
+  "name": "fallback-gastank",
+  "version": "1.0.0",
+  "description": "on chain gas tank contract that forwards call to smart account and instantly refunds the relayers",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "paymaster",
+    "gastank"
+  ],
+  "author": "livingrockrises",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^2.0.0",
+    "hardhat": "^2.12.4"
+  }
+}

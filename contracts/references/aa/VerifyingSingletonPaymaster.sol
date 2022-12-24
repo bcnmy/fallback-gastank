@@ -30,6 +30,8 @@ contract VerifyingSingletonPaymaster is BasePaymaster {
 
     mapping(address => uint256) public paymasterIdBalances;
 
+    // todo: Missing event for depositFor
+
     address public verifyingSigner;
 
     constructor(IEntryPoint _entryPoint, address _verifyingSigner) BasePaymaster(_entryPoint) {

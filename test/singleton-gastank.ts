@@ -309,6 +309,10 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
 
     /*expect(dappGasTankBalanceBefore.sub(dappGasTankBalanceAfter))
     .to.equal(relayBalanceBefore.sub(relayBalanceAfter));*/
+
+    // TODO : gas deduction assertions
+    // Relayer pays gas but also receives refund so before - after balance diff should be nearly 0
+    // The payment received by relayer should equals balance that got deduted for the dapp
   });
 
   it("Relay to gas tank should fail with wrong signature in fallback userOp", async function () {

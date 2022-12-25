@@ -7,14 +7,11 @@ import {
     TestToken,
     MultiSend,
     StorageSetter,
-    WhitelistModule,
     DefaultCallbackHandler,
     SingletonGasTank,
-    FallbackManager,
 } from "../typechain";
-import { arrayify, hexConcat, parseEther } from 'ethers/lib/utils'
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
-import { encodeTransfer, encodeTransferFrom } from "./testUtils";
+import { arrayify} from 'ethers/lib/utils'
+import { encodeTransfer } from "./testUtils";
 import {
     buildContractCall,
     MetaTransaction,
@@ -28,7 +25,6 @@ import {
     executeContractCallWithSigners,
 } from "../src/utils/execution";
 import { buildMultiSendSafeTx } from "../src/utils/multisend";
-import { exec } from "child_process";
 import { Signer } from "ethers";
 
 describe("Singleton GasTank relaying to a Smart Account", function () {
@@ -301,6 +297,8 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
       ethers.utils.parseEther("10")
     );
 
+    // ^ just like this balance nonce in relayGasTank contract should have been updated by 1!
+
     const relayBalanceAfter = await ethers.provider.getBalance(relayerAddress);
     console.log('relayer balance after ', relayBalanceAfter.toString())
 
@@ -317,6 +315,8 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
 
   it("Relay to gas tank should fail with wrong signature in fallback userOp", async function () {
   });
+
+  // Todo: other ways of signature mismatch and nonce mismatch (replay attacks) checks
 
 });
 

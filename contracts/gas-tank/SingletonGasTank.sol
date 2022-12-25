@@ -2,16 +2,12 @@
 pragma solidity 0.8.12;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 import "./libs/FallbackUserOperation.sol";
 
-// possibly imports account interface 
-
-// relay request is essentially userop sender info (wallet address) + signature + dapp identifier
-// hence we could have some struct similar to UserOperation and import it from libs 
-
 // todo add Reentrancy  Guard
-contract SingletonGasTank is Ownable {
+contract SingletonGasTank is Ownable, ReentrancyGuard {
     using ECDSA for bytes32;
     using FallbackUserOperationLib for FallbackUserOperation;
 
@@ -28,10 +24,11 @@ contract SingletonGasTank is Ownable {
     // nonce for account 
     mapping(address => uint256) private nonces;
 
-    // FallbackUserOp struct
-    // comes from library
+    constructor(address _verifyingSigner) {
+        require(_verifyingSigner != address(0), "SingletonGasTank: signer of gas tank can not be zero address");
+        verifyingSigner = _verifyingSigner;
+    }
 
-    
     /** */
     // Modifiers
 
@@ -40,10 +37,13 @@ contract SingletonGasTank is Ownable {
         _;
     }*/
 
-
     //** read methods */
     function getNonce(address _sender) external view returns(uint256 nonce) {
         nonce = nonces[_sender];
+    }
+
+    function getBalance(address _dappIdentifier) external view returns(uint256 balance) {
+        balance = dappIdentifierBalances[_dappIdentifier];
     }
 
     /** */
@@ -53,12 +53,14 @@ contract SingletonGasTank is Ownable {
     // event RelayerUninstalled(address relayer);
     
     // Dapp deposits
-    // should emit dappIdentifier and Amount
     event Deposit(address indexed sender, uint256 indexed amount, address indexed dappIdentifier); 
     /* Designed to enable the community to track change in storage variable baseGas which is used for charge calcuations 
        Unlikely to change */
     event BaseGasChanged(uint128 newBaseGas, address indexed actor);
 
+    event GaslessTxExecuted(address indexed relayer, address indexed account, bytes data, address dappIdentifier, uint256 indexed payment);
+
+    event GasTankEmpty();
 
     function setBaseGas(uint128 gas) external onlyOwner{
         baseGas = gas;
@@ -82,6 +84,15 @@ contract SingletonGasTank is Ownable {
         dappIdentifierBalances[dappIdentifier] += msg.value;
         // Emits an event
         emit Deposit(msg.sender, msg.value, dappIdentifier);
+    }
+
+    function withdrawGasForDapp(address dappIdentifier,address payable withdrawAddress, uint256 amount) external onlyOwner {
+        uint256 currentBalance = dappIdentifierBalances[dappIdentifier];
+        require(amount <= currentBalance, "Insufficient amount to withdraw");
+        dappIdentifierBalances[dappIdentifier] = currentBalance - amount;
+        (bool success,) = withdrawAddress.call{value : amount}("");
+        require(success, "failed to withdraw");
+        // May emit an event
     }
 
     /**
@@ -122,7 +133,7 @@ contract SingletonGasTank is Ownable {
     // if relayers whitelisting involve add modifier onlyRelayer
     function handleFallbackUserop(
         FallbackUserOperation calldata fallbackUserOp
-    ) external 
+    ) external nonReentrant
     {
         _validateSignature(fallbackUserOp);
         _validateAndUpdateNonce(fallbackUserOp);
@@ -135,15 +146,18 @@ contract SingletonGasTank is Ownable {
         // _verifyCallResult(success,ret,"Forwarded call to destination did not succeed");
 
         uint256 gasUsed = gasStarted - gasleft(); // Takes into account gas cost for refund. 
-        uint256 actualGasCost = gasUsed * tx.gasprice;
+        uint256 actualGasCost = (gasUsed + baseGas) * tx.gasprice;
 
-        if(!payable(msg.sender).send(actualGasCost)) {
-            // Notify that contract is out of gas.
+        (bool successful,) = msg.sender.call{value : actualGasCost}("");
+        if(!successful) {
+            emit GasTankEmpty();
         }
 
         // deduct funds
         dappIdentifierBalances[fallbackUserOp.dappIdentifier] -= actualGasCost;
+
         // emit event with payment, dapp details, relayer address and refund...
+        emit GaslessTxExecuted(msg.sender, fallbackUserOp.sender, fallbackUserOp.callData, fallbackUserOp.dappIdentifier, actualGasCost);
     }
 }
 

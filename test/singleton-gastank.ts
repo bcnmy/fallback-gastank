@@ -10,7 +10,7 @@ import {
     DefaultCallbackHandler,
     SingletonGasTank,
 } from "../typechain";
-import { arrayify} from 'ethers/lib/utils'
+import { arrayify } from 'ethers/lib/utils'
 import { encodeTransfer } from "./testUtils";
 import {
     buildContractCall,
@@ -184,11 +184,11 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
         console.log('current deposit ', balanceNow.toString());
 
         await expect(relayGasTank.connect(accounts[1]).
-        withdrawGasForDapp(dapp1, bob, ethers.utils.parseEther("0.5")))
-        .to.be.revertedWith('Ownable: caller is not the owner');
+            withdrawGasForDapp(dapp1, bob, ethers.utils.parseEther("0.5")))
+            .to.be.revertedWith('Ownable: caller is not the owner');
 
         await relayGasTank.connect(accounts[0]).
-        withdrawGasForDapp(dapp1, bob, ethers.utils.parseEther("0.5"));
+            withdrawGasForDapp(dapp1, bob, ethers.utils.parseEther("0.5"));
 
         const balanceAfter = await relayGasTank.getBalance(dapp1);
         console.log('balance after ', balanceAfter.toString());
@@ -200,123 +200,318 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
     });
 
     it("Relay SCW gasless transaction and charge dapp for gas from tank", async function () {
-    let tx, receipt;
+        let tx, receipt;
 
-    const dappGasTankBalanceBefore = await relayGasTank.getBalance(dapp1);
-    console.log('dapp deposit before ', dappGasTankBalanceBefore.toString())
+        const dappGasTankBalanceBefore = await relayGasTank.getBalance(dapp1);
+        console.log('dapp deposit before ', dappGasTankBalanceBefore.toString())
 
-    await token
-      .connect(accounts[0])
-      .transfer(userSCW.address, ethers.utils.parseEther("100"));
+        await token
+            .connect(accounts[0])
+            .transfer(userSCW.address, ethers.utils.parseEther("100"));
 
-    const safeTx: SafeTransaction = buildSafeTransaction({
-      to: token.address,
-      // value: ethers.utils.parseEther("1"),
-      data: encodeTransfer(charlie, ethers.utils.parseEther("10").toString()),
-      nonce: await userSCW.getNonce(0),
+        const safeTx: SafeTransaction = buildSafeTransaction({
+            to: token.address,
+            // value: ethers.utils.parseEther("1"),
+            data: encodeTransfer(charlie, ethers.utils.parseEther("10").toString()),
+            nonce: await userSCW.getNonce(0),
+        });
+
+        const chainId = await userSCW.getChainId();
+        const { signer, data } = await safeSignMessage(
+            accounts[0],
+            userSCW,
+            safeTx,
+            chainId
+        );
+
+        console.log(safeTx);
+
+        const transaction: Transaction = {
+            to: safeTx.to,
+            value: safeTx.value,
+            data: safeTx.data,
+            operation: safeTx.operation,
+            targetTxGas: safeTx.targetTxGas,
+        };
+        const refundInfo: FeeRefund = {
+            baseGas: safeTx.baseGas,
+            gasPrice: safeTx.gasPrice,
+            tokenGasPriceFactor: safeTx.tokenGasPriceFactor,
+            gasToken: safeTx.gasToken,
+            refundReceiver: safeTx.refundReceiver,
+        };
+
+        console.log('refund info')
+        console.log(refundInfo)
+
+        let signature = "0x";
+        signature += data.slice(2);
+
+        const execTransaction = await userSCW.populateTransaction.execTransaction(
+            transaction,
+            0,
+            refundInfo,
+            signature
+        )
+
+        console.log('call data for fallback user operation is ')
+        console.log(execTransaction.data)
+
+        const nonceFromGasTank = await relayGasTank.getNonce(userSCW.address);
+
+        let fallbackUserOp = {
+            sender: userSCW.address,
+            nonce: nonceFromGasTank.toNumber(),
+            callData: execTransaction.data,
+            callGasLimit: execTransaction.gasLimit,
+            dappIdentifier: dapp1,
+            signature: '0x'
+        }
+
+        const hashToSign = await relayGasTank.getHash(fallbackUserOp)
+        const sig = await faizal.signMessage(arrayify(hashToSign))
+
+        fallbackUserOp.signature = sig;
+
+        const relayerAddress = await snoopdog.getAddress();
+        const relayBalanceBefore = await ethers.provider.getBalance(relayerAddress);
+        console.log('relayer balance before ', relayBalanceBefore.toString())
+
+        await expect(
+            relayGasTank.connect(snoopdog).handleFallbackUserop(
+                fallbackUserOp
+            )
+        ).to.emit(relayGasTank, "GaslessTxExecuted")
+            .to.emit(userSCW, "ExecutionSuccess"); //.withArgs(relayerAddress, userSCW.address)
+
+        // get payment from event logs
+
+        expect(await token.balanceOf(charlie)).to.equal(
+            ethers.utils.parseEther("10")
+        );
+
+        // ^ just like this balance nonce in relayGasTank contract should have been updated by 1!
+
+        const relayBalanceAfter = await ethers.provider.getBalance(relayerAddress);
+        console.log('relayer balance after ', relayBalanceAfter.toString())
+
+        const dappGasTankBalanceAfter = await relayGasTank.getBalance(dapp1);
+        console.log('dapp deposit after ', dappGasTankBalanceAfter.toString())
     });
 
-    const chainId = await userSCW.getChainId();
-    const { signer, data } = await safeSignMessage(
-      accounts[0],
-      userSCW,
-      safeTx,
-      chainId
-    );
+    it("Relay to gas tank should fail with wrong signature in fallback userOp", async function () {
+        let tx, receipt;
 
-    console.log(safeTx);
+        const dappGasTankBalanceBefore = await relayGasTank.getBalance(dapp1);
+        console.log('dapp deposit before ', dappGasTankBalanceBefore.toString())
 
-    const transaction: Transaction = {
-      to: safeTx.to,
-      value: safeTx.value,
-      data: safeTx.data,
-      operation: safeTx.operation,
-      targetTxGas: safeTx.targetTxGas,
-    };
-    const refundInfo: FeeRefund = {
-      baseGas: safeTx.baseGas,
-      gasPrice: safeTx.gasPrice,
-      tokenGasPriceFactor: safeTx.tokenGasPriceFactor,
-      gasToken: safeTx.gasToken,
-      refundReceiver: safeTx.refundReceiver,
-    };
+        await token
+            .connect(accounts[0])
+            .transfer(userSCW.address, ethers.utils.parseEther("100"));
 
-    console.log('refund info')
-    console.log(refundInfo)
+        const safeTx: SafeTransaction = buildSafeTransaction({
+            to: token.address,
+            // value: ethers.utils.parseEther("1"),
+            data: encodeTransfer(charlie, ethers.utils.parseEther("10").toString()),
+            nonce: await userSCW.getNonce(0),
+        });
 
-    let signature = "0x";
-    signature += data.slice(2);
+        const chainId = await userSCW.getChainId();
+        const { signer, data } = await safeSignMessage(
+            accounts[0],
+            userSCW,
+            safeTx,
+            chainId
+        );
 
-    const execTransaction = await userSCW.populateTransaction.execTransaction(
-        transaction,
-        0,
-        refundInfo,
-        signature
-    )
+        console.log(safeTx);
 
-    console.log('call data for fallback user operation is ')
-    console.log(execTransaction.data)
+        const transaction: Transaction = {
+            to: safeTx.to,
+            value: safeTx.value,
+            data: safeTx.data,
+            operation: safeTx.operation,
+            targetTxGas: safeTx.targetTxGas,
+        };
+        const refundInfo: FeeRefund = {
+            baseGas: safeTx.baseGas,
+            gasPrice: safeTx.gasPrice,
+            tokenGasPriceFactor: safeTx.tokenGasPriceFactor,
+            gasToken: safeTx.gasToken,
+            refundReceiver: safeTx.refundReceiver,
+        };
 
-    // address sender; // smart account
-    // uint256 nonce;
-    // bytes callData;
-    // uint256 callGasLimit;
-    // address dappIdentifier;
-    // bytes signature;
+        console.log('refund info')
+        console.log(refundInfo)
 
-    const nonceFromGasTank = await relayGasTank.getNonce(userSCW.address);
+        let signature = "0x";
+        signature += data.slice(2);
 
-    let fallbackUserOp = {
-        sender: userSCW.address,
-        nonce: nonceFromGasTank.toNumber(),
-        callData: execTransaction.data,
-        callGasLimit: execTransaction.gasLimit,
-        dappIdentifier: dapp1,
-        signature: '0x'
-    }
+        const execTransaction = await userSCW.populateTransaction.execTransaction(
+            transaction,
+            0,
+            refundInfo,
+            signature
+        )
 
-    const hashToSign = await relayGasTank.getHash(fallbackUserOp)
-    const sig = await faizal.signMessage(arrayify(hashToSign))
+        console.log('call data for fallback user operation is ')
+        console.log(execTransaction.data)
 
-    fallbackUserOp.signature = sig;
+        const nonceFromGasTank = await relayGasTank.getNonce(userSCW.address);
 
-    const relayerAddress = await snoopdog.getAddress();
-    const relayBalanceBefore = await ethers.provider.getBalance(relayerAddress);
-    console.log('relayer balance before ', relayBalanceBefore.toString())
+        let fallbackUserOp = {
+            sender: userSCW.address,
+            nonce: nonceFromGasTank.toNumber(),
+            callData: execTransaction.data,
+            callGasLimit: execTransaction.gasLimit,
+            dappIdentifier: dapp1,
+            signature: '0x'
+        }
 
-    await expect(
-      relayGasTank.connect(snoopdog).handleFallbackUserop(
-        fallbackUserOp
-      )
-    ).to.emit(relayGasTank, "GaslessTxExecuted")
-    .to.emit(userSCW,"ExecutionSuccess"); //.withArgs(relayerAddress, userSCW.address)
+        const hashToSign = await relayGasTank.getHash(fallbackUserOp)
+        const sig = await snoopdog.signMessage(arrayify(hashToSign))
 
-    // get payment from event logs
+        fallbackUserOp.signature = sig;
 
-    expect(await token.balanceOf(charlie)).to.equal(
-      ethers.utils.parseEther("10")
-    );
+        const relayerAddress = await snoopdog.getAddress();
+        const relayBalanceBefore = await ethers.provider.getBalance(relayerAddress);
+        console.log('relayer balance before ', relayBalanceBefore.toString())
 
-    // ^ just like this balance nonce in relayGasTank contract should have been updated by 1!
+        await expect(
+            relayGasTank.connect(snoopdog).handleFallbackUserop(
+                fallbackUserOp
+            )
+        ).to.be.revertedWith("SingletonGasTank: wrong signature")
+    });
 
-    const relayBalanceAfter = await ethers.provider.getBalance(relayerAddress);
-    console.log('relayer balance after ', relayBalanceAfter.toString())
+    it("Relay SCW gasless transaction and charge dapp for gas from tank and compare gas deductions", async function () {
+        let tx, receipt;
 
-    const dappGasTankBalanceAfter = await relayGasTank.getBalance(dapp1);
-    console.log('dapp deposit after ', dappGasTankBalanceAfter.toString())
+        const RelayGasTank = await ethers.getContractFactory("SingletonGasTank");
 
-    /*expect(dappGasTankBalanceBefore.sub(dappGasTankBalanceAfter))
-    .to.equal(relayBalanceBefore.sub(relayBalanceAfter));*/
+        const dappGasTankBalanceBefore = await relayGasTank.getBalance(dapp1);
+        console.log('dapp deposit before ', dappGasTankBalanceBefore.toString())
 
-    // TODO : gas deduction assertions
-    // Relayer pays gas but also receives refund so before - after balance diff should be nearly 0
-    // The payment received by relayer should equals balance that got deduted for the dapp
-  });
+        await token
+            .connect(accounts[0])
+            .transfer(userSCW.address, ethers.utils.parseEther("100"));
 
-  it("Relay to gas tank should fail with wrong signature in fallback userOp", async function () {
-  });
+        const safeTx: SafeTransaction = buildSafeTransaction({
+            to: token.address,
+            // value: ethers.utils.parseEther("1"),
+            data: encodeTransfer(charlie, ethers.utils.parseEther("10").toString()),
+            nonce: await userSCW.getNonce(0),
+        });
 
-  // Todo: other ways of signature mismatch and nonce mismatch (replay attacks) checks
+        const chainId = await userSCW.getChainId();
+        const { signer, data } = await safeSignMessage(
+            accounts[0],
+            userSCW,
+            safeTx,
+            chainId
+        );
+
+        console.log(safeTx);
+
+        const transaction: Transaction = {
+            to: safeTx.to,
+            value: safeTx.value,
+            data: safeTx.data,
+            operation: safeTx.operation,
+            targetTxGas: safeTx.targetTxGas,
+        };
+        const refundInfo: FeeRefund = {
+            baseGas: safeTx.baseGas,
+            gasPrice: safeTx.gasPrice,
+            tokenGasPriceFactor: safeTx.tokenGasPriceFactor,
+            gasToken: safeTx.gasToken,
+            refundReceiver: safeTx.refundReceiver,
+        };
+
+        console.log('refund info')
+        console.log(refundInfo)
+
+        let signature = "0x";
+        signature += data.slice(2);
+
+        const execTransaction = await userSCW.populateTransaction.execTransaction(
+            transaction,
+            0,
+            refundInfo,
+            signature
+        )
+
+        console.log('call data for fallback user operation is ')
+        console.log(execTransaction.data)
+
+        const nonceFromGasTank = await relayGasTank.getNonce(userSCW.address);
+        console.log('nonceFromGasTank ', nonceFromGasTank.toString())
+
+        let fallbackUserOp = {
+            sender: userSCW.address,
+            nonce: nonceFromGasTank.toNumber(),
+            callData: execTransaction.data,
+            callGasLimit: execTransaction.gasLimit,
+            dappIdentifier: dapp1,
+            signature: '0x'
+        }
+
+        const hashToSign = await relayGasTank.getHash(fallbackUserOp)
+        const sig = await faizal.signMessage(arrayify(hashToSign))
+
+        fallbackUserOp.signature = sig;
+
+        const relayerAddress = await snoopdog.getAddress();
+        const relayBalanceBefore = await ethers.provider.getBalance(relayerAddress);
+        console.log('relayer balance before ', relayBalanceBefore.toString())
+
+        // bumping up base gas
+        await relayGasTank.connect(accounts[0]).setBaseGas(53000);
+
+
+        tx = await relayGasTank.connect(snoopdog).handleFallbackUserop(fallbackUserOp);
+
+        receipt = await tx.wait(1);
+
+        console.log('receipt.logs')
+        console.log(receipt.logs)
+
+        console.log("gasPrice: ", tx.gasPrice);
+        console.log("real txn gas used: ", receipt.gasUsed.toNumber());
+
+        /*const eventLogs = RelayGasTank.interface.decodeEventLog(
+            "GaslessTxExecuted",
+            receipt.logs[2].topics[3]
+          );*/
+        const paymentDeducted = ethers.BigNumber.from(receipt.logs[2].topics[3]).toString();
+        console.log("payment deducted ", paymentDeducted);
+      
+        const gasFees = receipt.gasUsed.mul(receipt.effectiveGasPrice);
+        console.log("gasFees", gasFees.toNumber());
+
+        // get payment from event logs
+
+        expect(await token.balanceOf(charlie)).to.equal(
+            ethers.utils.parseEther("20")
+        );
+
+        // ^ just like this balance nonce in relayGasTank contract should have been updated by 1!
+
+        const relayBalanceAfter = await ethers.provider.getBalance(relayerAddress);
+        console.log('relayer balance after ', relayBalanceAfter.toString())
+
+        const dappGasTankBalanceAfter = await relayGasTank.getBalance(dapp1);
+        console.log('dapp deposit after ', dappGasTankBalanceAfter.toString())
+
+        expect(dappGasTankBalanceBefore.sub(dappGasTankBalanceAfter))
+        .to.equal(ethers.BigNumber.from(paymentDeducted));
+
+        // TODO : gas deduction assertions
+        // Relayer pays gas but also receives refund so before - after balance diff should be nearly 0
+        // The payment received by relayer should equals balance that got deduted for the dapp
+    });
+
+    // Todo: other ways of signature mismatch and nonce mismatch (replay attacks) checks
 
 });
 

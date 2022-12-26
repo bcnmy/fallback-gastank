@@ -78,7 +78,8 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
     /**
      * add a deposit for given dappIdentifier (Dapp Depositor address), used for paying for transaction fees
      */
-    function depositFor(address dappIdentifier) public payable {
+    // review checks, affects, interactions
+    function depositFor(address dappIdentifier) public payable nonReentrant {
         require(!Address.isContract(dappIdentifier), "dappIdentifier can not be smart contract address");
         require(dappIdentifier != address(0), "dappIdentifier can not be zero address");
         dappIdentifierBalances[dappIdentifier] += msg.value;
@@ -86,7 +87,8 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
         emit Deposit(msg.sender, msg.value, dappIdentifier);
     }
 
-    function withdrawGasForDapp(address dappIdentifier,address payable withdrawAddress, uint256 amount) external onlyOwner {
+    // review checks, affects, interactions
+    function withdrawGasForDapp(address dappIdentifier,address payable withdrawAddress, uint256 amount) external onlyOwner nonReentrant {
         uint256 currentBalance = dappIdentifierBalances[dappIdentifier];
         require(amount <= currentBalance, "Insufficient amount to withdraw");
         dappIdentifierBalances[dappIdentifier] = currentBalance - amount;
@@ -131,14 +133,16 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
 
     // execution
     // if relayers whitelisting involve add modifier onlyRelayer
+    // review checks, affects, interactions
     function handleFallbackUserop(
         FallbackUserOperation calldata fallbackUserOp
     ) external nonReentrant
     {
+         uint256 gasStarted = gasleft();
+         
         _validateSignature(fallbackUserOp);
         _validateAndUpdateNonce(fallbackUserOp);
 
-        uint256 gasStarted = gasleft();
         (bool success,) = fallbackUserOp.sender.call{gas : fallbackUserOp.callGasLimit}(fallbackUserOp.callData);
         // Validate that the relayer has sent enough gas for the call.
         // See https://ronan.eth.link/blog/ethereum-gas-dangers/

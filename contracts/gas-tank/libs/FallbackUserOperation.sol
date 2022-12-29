@@ -16,7 +16,7 @@ pragma solidity ^0.8.12;
      */
     struct FallbackUserOperation {
 
-        address sender; // smart account
+        address sender; // smart account // review: can be renamed to target
         uint256 nonce;
         bytes callData;
         uint256 callGasLimit;
@@ -31,25 +31,5 @@ library FallbackUserOperationLib {
         //read sender from userOp, which is first userOp member (saves 800 gas...)
         assembly {data := calldataload(fallbackUserOp)}
         return address(uint160(data));
-    }
-
-    function pack(FallbackUserOperation calldata fallbackUserOp) internal pure returns (bytes memory ret) {
-        //lighter signature scheme. must match UserOp.ts#packUserOp
-        bytes calldata sig = fallbackUserOp.signature;
-        // copy directly the userOp from calldata up to (but not including) the signature.
-        // this encoding depends on the ABI encoding of calldata, but is much lighter to copy
-        // than referencing each field separately.
-        assembly {
-            let ofs := fallbackUserOp
-            let len := sub(sub(sig.offset, ofs), 32)
-            ret := mload(0x40)
-            mstore(0x40, add(ret, add(len, 32)))
-            mstore(ret, len)
-            calldatacopy(add(ret, 32), ofs, len)
-        }
-    }
-
-    function hash(FallbackUserOperation calldata fallbackUserOp) internal pure returns (bytes32) {
-        return keccak256(pack(fallbackUserOp));
     }
 }

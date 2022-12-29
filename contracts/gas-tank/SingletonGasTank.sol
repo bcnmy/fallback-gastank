@@ -80,7 +80,6 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
      */
     // review checks, affects, interactions
     function depositFor(address dappIdentifier) public payable nonReentrant {
-        require(!Address.isContract(dappIdentifier), "dappIdentifier can not be smart contract address");
         require(dappIdentifier != address(0), "dappIdentifier can not be zero address");
         dappIdentifierBalances[dappIdentifier] += msg.value;
         // Emits an event
@@ -100,7 +99,7 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
     /**
      * return the hash we're going to sign off-chain (and validate on-chain)
      * this method is called by the off-chain service, to sign the request.
-     * it is called on-chain from the handleFallbackUserop, to validate the signature.
+     * it is called on-chain from the handleFallbackUserOp, to validate the signature.
      * note that this signature covers all fields of the FallbackUserOperation, except the "signature",
      * which is the signature itself.
      */
@@ -134,25 +133,24 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
     // execution
     // if relayers whitelisting involve add modifier onlyRelayer
     // review checks, affects, interactions
-    function handleFallbackUserop(
+    function handleFallbackUserOp(
         FallbackUserOperation calldata fallbackUserOp
     ) external nonReentrant
     {
          uint256 gasStarted = gasleft();
+         require(msg.sender == tx.origin,"only EOA relayer");
+         address payable relayer = payable(msg.sender);
          
         _validateSignature(fallbackUserOp);
         _validateAndUpdateNonce(fallbackUserOp);
 
         (bool success,) = fallbackUserOp.sender.call{gas : fallbackUserOp.callGasLimit}(fallbackUserOp.callData);
-        // Validate that the relayer has sent enough gas for the call.
-        // See https://ronan.eth.link/blog/ethereum-gas-dangers/
-        // assert(gasleft() > req.txGas / 63);
         // _verifyCallResult(success,ret,"Forwarded call to destination did not succeed");
 
         uint256 gasUsed = gasStarted - gasleft(); // Takes into account gas cost for refund. 
         uint256 actualGasCost = (gasUsed + baseGas) * tx.gasprice;
 
-        (bool successful,) = msg.sender.call{value : actualGasCost}("");
+        (bool successful,) = relayer.call{value : actualGasCost}("");
         if(!successful) {
             emit GasTankEmpty();
         }

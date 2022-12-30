@@ -135,7 +135,7 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
     // review checks, affects, interactions
     function handleFallbackUserOp(
         FallbackUserOperation calldata fallbackUserOp
-    ) external nonReentrant
+    ) external nonReentrant returns(bool success, bytes memory ret)
     {
          uint256 gasStarted = gasleft();
          require(msg.sender == tx.origin,"only EOA relayer");
@@ -144,8 +144,8 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
         _validateSignature(fallbackUserOp);
         _validateAndUpdateNonce(fallbackUserOp);
 
-        (bool success,) = fallbackUserOp.sender.call{gas : fallbackUserOp.callGasLimit}(fallbackUserOp.callData);
-        // _verifyCallResult(success,ret,"Forwarded call to destination did not succeed");
+        (success, ret) = fallbackUserOp.sender.call{gas : fallbackUserOp.callGasLimit}(fallbackUserOp.callData);
+        _verifyCallResult(success,ret,"Forwarded call to destination did not succeed");
 
         uint256 gasUsed = gasStarted - gasleft(); // Takes into account gas cost for refund. 
         uint256 actualGasCost = (gasUsed + baseGas) * tx.gasprice;
@@ -160,6 +160,30 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
 
         // emit event with payment, dapp details, relayer address and refund...
         emit GaslessTxExecuted(msg.sender, fallbackUserOp.sender, fallbackUserOp.callData, fallbackUserOp.dappIdentifier, actualGasCost);
+    }
+
+    /**
+     * @dev verifies the call result and bubbles up revert reason for failed calls
+     *
+     * @param success : outcome of forwarded call
+     * @param returndata : returned data from the frowarded call
+     * @param errorMessage : fallback error message to show 
+     */
+     function _verifyCallResult(bool success, bytes memory returndata, string memory errorMessage) private pure {
+        if (!success) {
+            // Look for revert reason and bubble it up if present
+            if (returndata.length > 0) {
+                // The easiest way to bubble the revert reason is using memory via assembly
+
+                // solhint-disable-next-line no-inline-assembly
+                assembly {
+                    let returndata_size := mload(returndata)
+                    revert(add(32, returndata), returndata_size)
+                }
+            } else {
+                revert(errorMessage);
+            }
+        }
     }
 }
 

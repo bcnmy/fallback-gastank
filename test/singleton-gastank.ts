@@ -270,6 +270,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
 
         let fallbackUserOp = {
             sender: userSCW.address,
+            target: userSCW.address,
             nonce: nonceFromGasTank.toNumber(),
             callData: execTransaction.data,
             callGasLimit: execTransaction.gasLimit,
@@ -281,6 +282,9 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
         const sig = await faizal.signMessage(arrayify(hashToSign))
 
         fallbackUserOp.signature = sig;
+
+        console.log('fallback userop')
+        console.log(fallbackUserOp)
 
         const relayerAddress = await snoopdog.getAddress();
         const relayBalanceBefore = await ethers.provider.getBalance(relayerAddress);
@@ -370,6 +374,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
 
         let fallbackUserOp = {
             sender: userSCW.address,
+            target: userSCW.address,
             nonce: nonceFromGasTank.toNumber(),
             callData: execTransaction.data,
             callGasLimit: execTransaction.gasLimit,
@@ -458,6 +463,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
 
         let fallbackUserOp = {
             sender: userSCW.address,
+            target: userSCW.address,
             nonce: nonceFromGasTank.toNumber(),
             callData: execTransaction.data,
             callGasLimit: execTransaction.gasLimit,
@@ -611,7 +617,8 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
         const nonceFromGasTank = await relayGasTank.getNonce(userSCW.address);
 
         let fallbackUserOp = {
-            sender: multiSendCall.address, // target changes here
+            sender: expected, // target changes here
+            target: multiSendCall.address,
             nonce: nonceFromGasTank.toNumber(),
             callData: multiSendTx.data,
             callGasLimit: multiSendTx.gasLimit,

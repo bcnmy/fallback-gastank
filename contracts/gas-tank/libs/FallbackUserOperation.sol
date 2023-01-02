@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.12;
-
 /* solhint-disable no-inline-assembly */
 
 
@@ -16,20 +15,14 @@ pragma solidity ^0.8.12;
      */
     struct FallbackUserOperation {
 
-        address sender; // smart account // review: can be renamed to target
-        uint256 nonce;
-        bytes callData;
-        uint256 callGasLimit;
+        address sender;
+        address target;
         address dappIdentifier;
+        uint256 nonce;
+        uint256 callGasLimit;
+        bytes callData;
         bytes signature;
     }
 
 library FallbackUserOperationLib {
-
-    function getSender(FallbackUserOperation calldata fallbackUserOp) internal pure returns (address) {
-        address data;
-        //read sender from userOp, which is first userOp member (saves 800 gas...)
-        assembly {data := calldataload(fallbackUserOp)}
-        return address(uint160(data));
-    }
 }

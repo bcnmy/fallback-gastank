@@ -58,7 +58,7 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
        Unlikely to change */
     event BaseGasChanged(uint128 newBaseGas, address indexed actor);
 
-    event GaslessTxExecuted(address indexed relayer, address indexed account, bytes data, address dappIdentifier, uint256 indexed payment);
+    event GaslessTxExecuted(address indexed relayer, address indexed sender, bytes data, address dappIdentifier, uint256 indexed payment);
 
     event GasTankEmpty();
 
@@ -107,7 +107,8 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
     public pure returns (bytes32) {
         //can't use userOp.hash(), since it contains also the paymasterAndData itself.
         return keccak256(abi.encode(
-                fallbackUserOp.getSender(),
+                fallbackUserOp.sender,
+                fallbackUserOp.target,
                 fallbackUserOp.nonce,
                 keccak256(fallbackUserOp.callData),
                 fallbackUserOp.callGasLimit,
@@ -130,21 +131,20 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
         require(nonces[fallbackUserOp.sender]++ == fallbackUserOp.nonce, "account: invalid nonce");
     }
 
-    // execution
-    // if relayers whitelisting involve add modifier onlyRelayer
-    // review checks, affects, interactions
     function handleFallbackUserOp(
         FallbackUserOperation calldata fallbackUserOp
     ) external nonReentrant returns(bool success, bytes memory ret)
     {
          uint256 gasStarted = gasleft();
+         address _target = fallbackUserOp.target;
+         require(_target != address(0),"call to null address");
          require(msg.sender == tx.origin,"only EOA relayer");
          address payable relayer = payable(msg.sender);
          
         _validateSignature(fallbackUserOp);
         _validateAndUpdateNonce(fallbackUserOp);
 
-        (success, ret) = fallbackUserOp.sender.call{gas : fallbackUserOp.callGasLimit}(fallbackUserOp.callData);
+        (success, ret) = _target.call{gas : fallbackUserOp.callGasLimit}(fallbackUserOp.callData);
         _verifyCallResult(success,ret,"Forwarded call to destination did not succeed");
 
         uint256 gasUsed = gasStarted - gasleft(); // Takes into account gas cost for refund. 

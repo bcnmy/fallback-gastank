@@ -58,7 +58,7 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
        Unlikely to change */
     event BaseGasChanged(uint128 newBaseGas, address indexed actor);
 
-    event GaslessTxExecuted(address indexed relayer, address indexed account, bytes data, address dappIdentifier, uint256 indexed payment);
+    event GaslessTxExecuted(address indexed relayer, address indexed sender, bytes data, address dappIdentifier, uint256 indexed payment);
 
     event GasTankEmpty();
 
@@ -80,7 +80,6 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
      */
     // review checks, affects, interactions
     function depositFor(address dappIdentifier) public payable nonReentrant {
-        require(!Address.isContract(dappIdentifier), "dappIdentifier can not be smart contract address");
         require(dappIdentifier != address(0), "dappIdentifier can not be zero address");
         dappIdentifierBalances[dappIdentifier] += msg.value;
         // Emits an event
@@ -100,7 +99,7 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
     /**
      * return the hash we're going to sign off-chain (and validate on-chain)
      * this method is called by the off-chain service, to sign the request.
-     * it is called on-chain from the handleFallbackUserop, to validate the signature.
+     * it is called on-chain from the handleFallbackUserOp, to validate the signature.
      * note that this signature covers all fields of the FallbackUserOperation, except the "signature",
      * which is the signature itself.
      */
@@ -108,7 +107,8 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
     public pure returns (bytes32) {
         //can't use userOp.hash(), since it contains also the paymasterAndData itself.
         return keccak256(abi.encode(
-                fallbackUserOp.getSender(),
+                fallbackUserOp.sender,
+                fallbackUserOp.target,
                 fallbackUserOp.nonce,
                 keccak256(fallbackUserOp.callData),
                 fallbackUserOp.callGasLimit,
@@ -131,28 +131,26 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
         require(nonces[fallbackUserOp.sender]++ == fallbackUserOp.nonce, "account: invalid nonce");
     }
 
-    // execution
-    // if relayers whitelisting involve add modifier onlyRelayer
-    // review checks, affects, interactions
-    function handleFallbackUserop(
+    function handleFallbackUserOp(
         FallbackUserOperation calldata fallbackUserOp
-    ) external nonReentrant
+    ) external nonReentrant returns(bool success, bytes memory ret)
     {
          uint256 gasStarted = gasleft();
+         address _target = fallbackUserOp.target;
+         require(_target != address(0),"call to null address");
+         require(msg.sender == tx.origin,"only EOA relayer");
+         address payable relayer = payable(msg.sender);
          
         _validateSignature(fallbackUserOp);
         _validateAndUpdateNonce(fallbackUserOp);
 
-        (bool success,) = fallbackUserOp.sender.call{gas : fallbackUserOp.callGasLimit}(fallbackUserOp.callData);
-        // Validate that the relayer has sent enough gas for the call.
-        // See https://ronan.eth.link/blog/ethereum-gas-dangers/
-        // assert(gasleft() > req.txGas / 63);
-        // _verifyCallResult(success,ret,"Forwarded call to destination did not succeed");
+        (success, ret) = _target.call{gas : fallbackUserOp.callGasLimit}(fallbackUserOp.callData);
+        _verifyCallResult(success,ret,"Forwarded call to destination did not succeed");
 
         uint256 gasUsed = gasStarted - gasleft(); // Takes into account gas cost for refund. 
         uint256 actualGasCost = (gasUsed + baseGas) * tx.gasprice;
 
-        (bool successful,) = msg.sender.call{value : actualGasCost}("");
+        (bool successful,) = relayer.call{value : actualGasCost}("");
         if(!successful) {
             emit GasTankEmpty();
         }
@@ -162,6 +160,30 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
 
         // emit event with payment, dapp details, relayer address and refund...
         emit GaslessTxExecuted(msg.sender, fallbackUserOp.sender, fallbackUserOp.callData, fallbackUserOp.dappIdentifier, actualGasCost);
+    }
+
+    /**
+     * @dev verifies the call result and bubbles up revert reason for failed calls
+     *
+     * @param success : outcome of forwarded call
+     * @param returndata : returned data from the frowarded call
+     * @param errorMessage : fallback error message to show 
+     */
+     function _verifyCallResult(bool success, bytes memory returndata, string memory errorMessage) private pure {
+        if (!success) {
+            // Look for revert reason and bubble it up if present
+            if (returndata.length > 0) {
+                // The easiest way to bubble the revert reason is using memory via assembly
+
+                // solhint-disable-next-line no-inline-assembly
+                assembly {
+                    let returndata_size := mload(returndata)
+                    revert(add(32, returndata), returndata_size)
+                }
+            } else {
+                revert(errorMessage);
+            }
+        }
     }
 }
 

@@ -6,6 +6,7 @@ import {
     EntryPointSA,
     TestToken,
     MultiSend,
+    MultiSendCallOnly,
     StorageSetter,
     DefaultCallbackHandler,
     SingletonGasTank,
@@ -24,7 +25,10 @@ import {
     buildSafeTransaction,
     executeContractCallWithSigners,
 } from "../src/utils/execution";
-import { buildMultiSendSafeTx } from "../src/utils/multisend";
+import {
+    encodeMultiSend,
+    buildMultiSendSafeTx,
+  } from "../src/utils/multisend";
 import { Signer } from "ethers";
 
 describe("Singleton GasTank relaying to a Smart Account", function () {
@@ -33,6 +37,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
     let entryPoint: EntryPointSA;
     let token: TestToken;
     let multiSend: MultiSend;
+    let multiSendCall: MultiSendCallOnly;
     let storage: StorageSetter;
     let owner: string;
     let bob: string;
@@ -111,6 +116,10 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
         const Storage = await ethers.getContractFactory("StorageSetter");
         storage = await Storage.deploy();
         console.log("storage setter contract deployed at: ", storage.address);
+
+        const MultiSendCallOnly = await ethers.getContractFactory("MultiSendCallOnly");
+        multiSendCall = await MultiSendCallOnly.deploy();
+        console.log("Multisend Call Only helper contract deployed at: ", multiSendCall.address);
 
         const MultiSend = await ethers.getContractFactory("MultiSend");
         multiSend = await MultiSend.deploy();
@@ -261,6 +270,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
 
         let fallbackUserOp = {
             sender: userSCW.address,
+            target: userSCW.address,
             nonce: nonceFromGasTank.toNumber(),
             callData: execTransaction.data,
             callGasLimit: execTransaction.gasLimit,
@@ -273,12 +283,15 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
 
         fallbackUserOp.signature = sig;
 
+        console.log('fallback userop')
+        console.log(fallbackUserOp)
+
         const relayerAddress = await snoopdog.getAddress();
         const relayBalanceBefore = await ethers.provider.getBalance(relayerAddress);
         console.log('relayer balance before ', relayBalanceBefore.toString())
 
         await expect(
-            relayGasTank.connect(snoopdog).handleFallbackUserop(
+            relayGasTank.connect(snoopdog).handleFallbackUserOp(
                 fallbackUserOp
             )
         ).to.emit(relayGasTank, "GaslessTxExecuted")
@@ -361,6 +374,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
 
         let fallbackUserOp = {
             sender: userSCW.address,
+            target: userSCW.address,
             nonce: nonceFromGasTank.toNumber(),
             callData: execTransaction.data,
             callGasLimit: execTransaction.gasLimit,
@@ -378,7 +392,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
         console.log('relayer balance before ', relayBalanceBefore.toString())
 
         await expect(
-            relayGasTank.connect(snoopdog).handleFallbackUserop(
+            relayGasTank.connect(snoopdog).handleFallbackUserOp(
                 fallbackUserOp
             )
         ).to.be.revertedWith("SingletonGasTank: wrong signature")
@@ -449,6 +463,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
 
         let fallbackUserOp = {
             sender: userSCW.address,
+            target: userSCW.address,
             nonce: nonceFromGasTank.toNumber(),
             callData: execTransaction.data,
             callGasLimit: execTransaction.gasLimit,
@@ -469,7 +484,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
         await relayGasTank.connect(accounts[0]).setBaseGas(53000);
 
 
-        tx = await relayGasTank.connect(snoopdog).handleFallbackUserop(fallbackUserOp);
+        tx = await relayGasTank.connect(snoopdog).handleFallbackUserOp(fallbackUserOp);
 
         receipt = await tx.wait(1);
 
@@ -509,6 +524,138 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
         // TODO : gas deduction assertions
         // Relayer pays gas but also receives refund so before - after balance diff should be nearly 0
         // The payment received by relayer should equals balance that got deduted for the dapp
+    });
+
+    it("Wallet deployment + Relay SCW gasless transaction and charge dapp for gas from tank", async function () {
+        let tx, receipt;
+
+        const MultiSend = await ethers.getContractFactory("MultiSendCallOnly");
+
+        const expected = await walletFactory.getAddressForCounterfactualWallet(
+            owner,
+            10
+          );
+        console.log("deploying new wallet in this transaction..expected address: ", expected);
+
+        const dappGasTankBalanceBefore = await relayGasTank.getBalance(dapp1);
+        console.log('dapp deposit before ', dappGasTankBalanceBefore.toString())
+
+        await token
+            .connect(accounts[0])
+            .transfer(expected, ethers.utils.parseEther("100"));
+
+        const safeTx: SafeTransaction = buildSafeTransaction({
+            to: token.address,
+            // value: ethers.utils.parseEther("1"),
+            data: encodeTransfer(charlie, ethers.utils.parseEther("10").toString()),
+            nonce: 0, // nonce picked 0 for first transaction
+        });
+
+        const chainId = await userSCW.getChainId();
+        userSCW = userSCW.attach(expected);
+        const { signer, data } = await safeSignMessage(
+            accounts[0],
+            userSCW,
+            safeTx,
+            chainId
+        );
+
+        console.log(safeTx);
+
+        const transaction: Transaction = {
+            to: safeTx.to,
+            value: safeTx.value,
+            data: safeTx.data,
+            operation: safeTx.operation,
+            targetTxGas: safeTx.targetTxGas,
+        };
+        const refundInfo: FeeRefund = {
+            baseGas: safeTx.baseGas,
+            gasPrice: safeTx.gasPrice,
+            tokenGasPriceFactor: safeTx.tokenGasPriceFactor,
+            gasToken: safeTx.gasToken,
+            refundReceiver: safeTx.refundReceiver,
+        };
+
+        console.log('refund info')
+        console.log(refundInfo)
+
+        let signature = "0x";
+        signature += data.slice(2);
+
+        const txs: MetaTransaction[] = [
+            buildContractCall(
+              walletFactory,
+              "deployCounterFactualWallet",
+              [owner, entryPoint.address, handler.address, 10],
+              0
+            ),
+            buildContractCall(
+              userSCW,
+              "execTransaction",
+              [transaction, 1, refundInfo, signature],
+              0
+            ),
+          ];
+
+        const multiSendTx = await multiSendCall.populateTransaction.multiSend( encodeMultiSend(txs) );
+      
+        /*const txnData = MultiSend.interface.encodeFunctionData("multiSend", [
+            encodeMultiSend(txs),
+          ]);*/
+
+        /*const execTransaction = await userSCW.populateTransaction.execTransaction(
+            transaction,
+            0,
+            refundInfo,
+            signature
+        )*/
+
+        console.log('call data for fallback user operation is ')
+        console.log(multiSendTx.data)
+
+        const nonceFromGasTank = await relayGasTank.getNonce(userSCW.address);
+
+        let fallbackUserOp = {
+            sender: expected, // target changes here
+            target: multiSendCall.address,
+            nonce: nonceFromGasTank.toNumber(),
+            callData: multiSendTx.data,
+            callGasLimit: multiSendTx.gasLimit,
+            dappIdentifier: dapp1,
+            signature: '0x'
+        }
+
+        const hashToSign = await relayGasTank.getHash(fallbackUserOp)
+        const sig = await faizal.signMessage(arrayify(hashToSign))
+
+        fallbackUserOp.signature = sig;
+
+        const relayerAddress = await snoopdog.getAddress();
+        const relayBalanceBefore = await ethers.provider.getBalance(relayerAddress);
+        console.log('relayer balance before ', relayBalanceBefore.toString())
+
+        await expect(
+            relayGasTank.connect(snoopdog).handleFallbackUserOp(
+                fallbackUserOp
+            )
+        ).to.emit(relayGasTank, "GaslessTxExecuted")
+            .to.emit(userSCW, "ExecutionSuccess") //.withArgs(relayerAddress, userSCW.address)
+             .to.emit(walletFactory,"WalletCreated"); //.withArgs
+
+        // get payment from event logs
+
+        expect(await token.balanceOf(charlie)).to.equal(
+            ethers.utils.parseEther("30")
+        );
+
+        // ^ just like this balance nonce in relayGasTank contract should have been updated by 1!
+
+        const relayBalanceAfter = await ethers.provider.getBalance(relayerAddress);
+        console.log('relayer balance after ', relayBalanceAfter.toString())
+
+        const dappGasTankBalanceAfter = await relayGasTank.getBalance(dapp1);
+        console.log('dapp deposit after ', dappGasTankBalanceAfter.toString())
     });
 
     // Todo: other ways of signature mismatch and nonce mismatch (replay attacks) checks

@@ -136,20 +136,15 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
     ) external nonReentrant returns(bool success, bytes memory ret)
     {
          uint256 gasStarted = gasleft();
-         address target;
+         address _target = fallbackUserOp.target;
+         require(_target != address(0),"call to null address");
          require(msg.sender == tx.origin,"only EOA relayer");
          address payable relayer = payable(msg.sender);
          
         _validateSignature(fallbackUserOp);
         _validateAndUpdateNonce(fallbackUserOp);
 
-        if(fallbackUserOp.sender == fallbackUserOp.target) {
-            target = fallbackUserOp.sender;
-        } else {
-            target = fallbackUserOp.target;
-        }
-
-        (success, ret) = target.call{gas : fallbackUserOp.callGasLimit}(fallbackUserOp.callData);
+        (success, ret) = _target.call{gas : fallbackUserOp.callGasLimit}(fallbackUserOp.callData);
         _verifyCallResult(success,ret,"Forwarded call to destination did not succeed");
 
         uint256 gasUsed = gasStarted - gasleft(); // Takes into account gas cost for refund. 

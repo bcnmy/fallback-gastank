@@ -6,17 +6,12 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 import "./libs/FallbackUserOperation.sol";
 
-// todo add Reentrancy  Guard
-contract SingletonGasTank is Ownable, ReentrancyGuard {
+contract FallbackGasTank is Ownable, ReentrancyGuard {
     using ECDSA for bytes32;
     using FallbackUserOperationLib for FallbackUserOperation;
 
     /** */
     // States
-
-    // @review Could be used to prevent front-running
-    // mapping(address => bool) public relayers;
-
     mapping(address => uint256) public dappIdentifierBalances;
     address public verifyingSigner;
     //transaction base gas
@@ -25,17 +20,9 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
     mapping(address => uint256) private nonces;
 
     constructor(address _verifyingSigner) {
-        require(_verifyingSigner != address(0), "SingletonGasTank: signer of gas tank can not be zero address");
+        require(_verifyingSigner != address(0), "FallbackGasTank: signer of gas tank can not be zero address");
         verifyingSigner = _verifyingSigner;
     }
-
-    /** */
-    // Modifiers
-
-    /*modifier onlyRelayer {
-        require(relayers[msg.sender], "Only relayer can call this function.");
-        _;
-    }*/
 
     //** read methods */
     function getNonce(address _sender) external view returns(uint256 nonce) {
@@ -71,14 +58,13 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
     this function will let owner change signer
     */
     function setSigner( address _newVerifyingSigner) external onlyOwner{
-        require(_newVerifyingSigner != address(0), "SingletonGasTank: new signer can not be zero address");
+        require(_newVerifyingSigner != address(0), "FallbackGasTank: new signer can not be zero address");
         verifyingSigner = _newVerifyingSigner;
     }
 
     /**
      * add a deposit for given dappIdentifier (Dapp Depositor address), used for paying for transaction fees
      */
-    // review checks, affects, interactions
     function depositFor(address dappIdentifier) public payable nonReentrant {
         require(dappIdentifier != address(0), "dappIdentifier can not be zero address");
         dappIdentifierBalances[dappIdentifier] += msg.value;
@@ -86,7 +72,6 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
         emit Deposit(msg.sender, msg.value, dappIdentifier);
     }
 
-    // review checks, affects, interactions
     function withdrawGasForDapp(address dappIdentifier,address payable withdrawAddress, uint256 amount) external onlyOwner nonReentrant {
         uint256 currentBalance = dappIdentifierBalances[dappIdentifier];
         require(amount <= currentBalance, "Insufficient amount to withdraw");
@@ -123,8 +108,8 @@ contract SingletonGasTank is Ownable, ReentrancyGuard {
 
         //ECDSA library supports both 64 and 65-byte long signatures.
         // we only "require" it here so that the revert reason on invalid signature will be of "VerifyingPaymaster", and not "ECDSA"
-        require(sigLength == 64 || sigLength == 65, "SingletonGasTank: invalid signature length in fallbackUserOp");
-        require(verifyingSigner == hash.toEthSignedMessageHash().recover(fallbackUserOp.signature), "SingletonGasTank: wrong signature");
+        require(sigLength == 64 || sigLength == 65, "FallbackGasTank: invalid signature length in fallbackUserOp");
+        require(verifyingSigner == hash.toEthSignedMessageHash().recover(fallbackUserOp.signature), "FallbackGasTank: wrong signature");
     }
 
     function _validateAndUpdateNonce(FallbackUserOperation calldata fallbackUserOp) internal {

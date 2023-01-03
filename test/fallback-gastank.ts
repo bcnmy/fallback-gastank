@@ -9,7 +9,7 @@ import {
     MultiSendCallOnly,
     StorageSetter,
     DefaultCallbackHandler,
-    SingletonGasTank,
+    FallbackGasTank,
 } from "../typechain";
 import { arrayify } from 'ethers/lib/utils'
 import { encodeTransfer } from "./testUtils";
@@ -47,7 +47,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
     let dapp1: string;
     let userSCW: any;
     let handler: DefaultCallbackHandler;
-    let relayGasTank: SingletonGasTank;
+    let relayGasTank: FallbackGasTank;
     const UNSTAKE_DELAY_SEC = 100;
     const VERSION = '1.0.1'
     const PAYMASTER_STAKE = ethers.utils.parseEther("1");
@@ -103,14 +103,14 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
         await handler.deployed();
         console.log("Default callback handler deployed at: ", handler.address);
 
-        const SingletonGasTank = await ethers.getContractFactory(
-            "SingletonGasTank"
+        const FallbackGasTank = await ethers.getContractFactory(
+            "FallbackGasTank"
         );
-        relayGasTank = await SingletonGasTank.deploy(
+        relayGasTank = await FallbackGasTank.deploy(
             await faizal.getAddress()
         );
         await relayGasTank.deployed();
-        console.log("SingletonGasTank deployed at: ", relayGasTank.address);
+        console.log("FallbackGasTank deployed at: ", relayGasTank.address);
 
 
         const Storage = await ethers.getContractFactory("StorageSetter");
@@ -395,13 +395,13 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
             relayGasTank.connect(snoopdog).handleFallbackUserOp(
                 fallbackUserOp
             )
-        ).to.be.revertedWith("SingletonGasTank: wrong signature")
+        ).to.be.revertedWith("FallbackGasTank: wrong signature")
     });
 
     it("Relay SCW gasless transaction and charge dapp for gas from tank and compare gas deductions", async function () {
         let tx, receipt;
 
-        const RelayGasTank = await ethers.getContractFactory("SingletonGasTank");
+        const RelayGasTank = await ethers.getContractFactory("FallbackGasTank");
 
         const dappGasTankBalanceBefore = await relayGasTank.getBalance(dapp1);
         console.log('dapp deposit before ', dappGasTankBalanceBefore.toString())

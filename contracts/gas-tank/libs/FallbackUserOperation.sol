@@ -2,8 +2,6 @@
 pragma solidity ^0.8.12;
 /* solhint-disable no-inline-assembly */
 
-
-// review : There might be an addition for baseGas offset that can be passed with the request
 /**
      * Fallback User SCW Operation struct
      * @param sender smart account for this request

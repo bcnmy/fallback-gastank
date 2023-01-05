@@ -15,7 +15,7 @@ async function main() {
 
   tx = await gasTank.transferOwnership(owner);
   receipt = await tx.wait();
-  console.log(`Singleton gas tank ownership transferred to ${owner}`);
+  console.log(`Fallback gas tank ownership transferred to ${owner}`);
 
 }
 

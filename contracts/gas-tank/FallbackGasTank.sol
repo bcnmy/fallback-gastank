@@ -88,6 +88,7 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
      * note that this signature covers all fields of the FallbackUserOperation, except the "signature",
      * which is the signature itself.
      */
+    // todo: include chainId and address of self in the sig verification
     function getHash(FallbackUserOperation calldata fallbackUserOp)
     public pure returns (bytes32) {
         //can't use userOp.hash(), since it contains also the paymasterAndData itself.

@@ -370,6 +370,9 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
         console.log('call data for fallback user operation is ')
         console.log(execTransaction.data)
 
+        console.log('gaslimit for fallback user operation is ')
+        console.log(execTransaction.gasLimit)
+
         const nonceFromGasTank = await relayGasTank.getNonce(userSCW.address);
 
         let fallbackUserOp = {

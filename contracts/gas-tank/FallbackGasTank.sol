@@ -66,6 +66,7 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
      * add a deposit for given dappIdentifier (Dapp Depositor address), used for paying for transaction fees
      */
     function depositFor(address dappIdentifier) public payable nonReentrant {
+        // review if we need to restrict dappIdentifier to not be a contract
         require(dappIdentifier != address(0), "dappIdentifier can not be zero address");
         dappIdentifierBalances[dappIdentifier] += msg.value;
         // Emits an event
@@ -75,7 +76,9 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
     function withdrawGasForDapp(address dappIdentifier,address payable withdrawAddress, uint256 amount) external onlyOwner nonReentrant {
         uint256 currentBalance = dappIdentifierBalances[dappIdentifier];
         require(amount <= currentBalance, "Insufficient amount to withdraw");
+        unchecked {
         dappIdentifierBalances[dappIdentifier] = currentBalance - amount;
+        }
         (bool success,) = withdrawAddress.call{value : amount}("");
         require(success, "failed to withdraw");
         // May emit an event
@@ -90,16 +93,21 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
      */
     // todo: include chainId and address of self in the sig verification
     function getHash(FallbackUserOperation calldata fallbackUserOp)
-    public pure returns (bytes32) {
-        //can't use userOp.hash(), since it contains also the paymasterAndData itself.
+    public view returns (bytes32) {
+        uint256 id;
+        assembly {
+            id := chainid()
+        }
         return keccak256(abi.encode(
                 fallbackUserOp.sender,
                 fallbackUserOp.target,
                 fallbackUserOp.nonce,
                 keccak256(fallbackUserOp.callData),
                 fallbackUserOp.callGasLimit,
-                fallbackUserOp.dappIdentifier
-            ));
+                fallbackUserOp.dappIdentifier,
+                id,
+                address(this)
+        ));
     }
 
     function _validateSignature(FallbackUserOperation calldata fallbackUserOp) internal view {
@@ -109,7 +117,7 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
 
         //ECDSA library supports both 64 and 65-byte long signatures.
         // we only "require" it here so that the revert reason on invalid signature will be of "VerifyingPaymaster", and not "ECDSA"
-        require(sigLength == 64 || sigLength == 65, "FallbackGasTank: invalid signature length in fallbackUserOp");
+        require(sigLength == 65, "FallbackGasTank: invalid signature length in fallbackUserOp");
         require(verifyingSigner == hash.toEthSignedMessageHash().recover(fallbackUserOp.signature), "FallbackGasTank: wrong signature");
     }
 
@@ -132,8 +140,10 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
 
         (success, ret) = _target.call{gas : fallbackUserOp.callGasLimit}(fallbackUserOp.callData);
         _verifyCallResult(success,ret,"Forwarded call to destination did not succeed");
-
-        uint256 gasUsed = gasStarted - gasleft(); // Takes into account gas cost for refund. 
+        uint256 gasUsed;
+        unchecked {
+        gasUsed = gasStarted - gasleft(); // Takes into account gas cost for refund. 
+        }
         uint256 actualGasCost = (gasUsed + baseGas) * tx.gasprice;
 
         (bool successful,) = relayer.call{value : actualGasCost}("");

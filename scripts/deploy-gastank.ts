@@ -8,15 +8,11 @@ async function main() {
     "FallbackGasTank"
   );
   const gasTank = await FallbackGasTank.deploy(
+    owner,
     verifyingSigner
   );
   tx = await gasTank.deployed();
   console.log("FallbackGasTank deployed at: ", gasTank.address);
-
-  tx = await gasTank.transferOwnership(owner);
-  receipt = await tx.wait();
-  console.log(`Singleton gas tank ownership transferred to ${owner}`);
-
 }
 
 main().catch((error) => {

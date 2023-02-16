@@ -10,7 +10,6 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
     using ECDSA for bytes32;
     using FallbackUserOperationLib for FallbackUserOperation;
 
-    /** */
     // States
     mapping(address => uint256) public dappIdentifierBalances;
     address public verifyingSigner;
@@ -19,9 +18,11 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
     // nonce for account 
     mapping(address => uint256) private nonces;
 
-    constructor(address _verifyingSigner) {
-        require(_verifyingSigner != address(0), "FallbackGasTank: signer of gas tank can not be zero address");
+    constructor(address _owner, address _verifyingSigner) {
+        require(_verifyingSigner != address(0), "signer of gas tank can not be 0");
         verifyingSigner = _verifyingSigner;
+        require(_owner != address(0), "owner can not be 0");
+        _transferOwnership(_owner);
     }
 
     //** read methods */
@@ -33,21 +34,19 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
         balance = dappIdentifierBalances[_dappIdentifier];
     }
 
-    /** */
     //Events
-
-    // event RelayerInstalled(address relayer);
-    // event RelayerUninstalled(address relayer);
     
     // Dapp deposits
     event Deposit(address indexed sender, uint256 indexed amount, address indexed dappIdentifier); 
     /* Designed to enable the community to track change in storage variable baseGas which is used for charge calcuations 
        Unlikely to change */
-    event BaseGasChanged(uint128 newBaseGas, address indexed actor);
+    event BaseGasChanged(uint128 indexed newBaseGas, address indexed actor);
 
     event GaslessTxExecuted(address indexed relayer, address indexed sender, bytes data, address dappIdentifier, uint256 indexed payment);
 
     event GasTankEmpty();
+
+    event GasWithdrawn(address indexed _dappIdentifier, address indexed _to, address _actor, uint256 indexed _value);
 
     function setBaseGas(uint128 gas) external onlyOwner{
         baseGas = gas;
@@ -66,7 +65,6 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
      * add a deposit for given dappIdentifier (Dapp Depositor address), used for paying for transaction fees
      */
     function depositFor(address dappIdentifier) public payable nonReentrant {
-        // review if we need to restrict dappIdentifier to not be a contract
         require(dappIdentifier != address(0), "dappIdentifier can not be zero address");
         dappIdentifierBalances[dappIdentifier] += msg.value;
         // Emits an event
@@ -81,7 +79,7 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
         }
         (bool success,) = withdrawAddress.call{value : amount}("");
         require(success, "failed to withdraw");
-        // May emit an event
+        emit GasWithdrawn(dappIdentifier, withdrawAddress, msg.sender, amount);
     }
 
     /**
@@ -91,13 +89,8 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
      * note that this signature covers all fields of the FallbackUserOperation, except the "signature",
      * which is the signature itself.
      */
-    // todo: include chainId and address of self in the sig verification
     function getHash(FallbackUserOperation calldata fallbackUserOp)
     public view returns (bytes32) {
-        uint256 id;
-        assembly {
-            id := chainid()
-        }
         return keccak256(abi.encode(
                 fallbackUserOp.sender,
                 fallbackUserOp.target,
@@ -105,7 +98,7 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
                 keccak256(fallbackUserOp.callData),
                 fallbackUserOp.callGasLimit,
                 fallbackUserOp.dappIdentifier,
-                id,
+                block.chainid,
                 address(this)
         ));
     }
@@ -115,14 +108,13 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
         bytes32 hash = getHash(fallbackUserOp);
         uint256 sigLength = fallbackUserOp.signature.length;
 
-        //ECDSA library supports both 64 and 65-byte long signatures.
         // we only "require" it here so that the revert reason on invalid signature will be of "VerifyingPaymaster", and not "ECDSA"
         require(sigLength == 65, "FallbackGasTank: invalid signature length in fallbackUserOp");
         require(verifyingSigner == hash.toEthSignedMessageHash().recover(fallbackUserOp.signature), "FallbackGasTank: wrong signature");
     }
 
-    function _validateAndUpdateNonce(FallbackUserOperation calldata fallbackUserOp) internal {
-        require(nonces[fallbackUserOp.sender]++ == fallbackUserOp.nonce, "account: invalid nonce");
+    function _updateNonce(FallbackUserOperation calldata fallbackUserOp) internal {
+         ++nonces[fallbackUserOp.sender];
     }
 
     function handleFallbackUserOp(
@@ -136,7 +128,7 @@ contract FallbackGasTank is Ownable, ReentrancyGuard {
          address payable relayer = payable(msg.sender);
          
         _validateSignature(fallbackUserOp);
-        _validateAndUpdateNonce(fallbackUserOp);
+        _updateNonce(fallbackUserOp);
 
         (success, ret) = _target.call{gas : fallbackUserOp.callGasLimit}(fallbackUserOp.callData);
         _verifyCallResult(success,ret,"Forwarded call to destination did not succeed");

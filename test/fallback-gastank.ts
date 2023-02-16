@@ -62,6 +62,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
     ]; */
 
     before(async () => {
+        // TODO update wallet contracts , factory and entry point as per latest
         accounts = await ethers.getSigners();
         const addresses = await ethers.provider.listAccounts();
         const ethersSigner = ethers.provider.getSigner();
@@ -107,6 +108,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
             "FallbackGasTank"
         );
         relayGasTank = await FallbackGasTank.deploy(
+            owner,
             await faizal.getAddress()
         );
         await relayGasTank.deployed();

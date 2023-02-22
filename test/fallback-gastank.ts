@@ -48,10 +48,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
     let userSCW: any;
     let handler: DefaultCallbackHandler;
     let relayGasTank: FallbackGasTank;
-    const UNSTAKE_DELAY_SEC = 100;
-    const VERSION = '1.0.1'
-    const PAYMASTER_STAKE = ethers.utils.parseEther("1");
-    const create2FactoryAddress = "0xce0042B868300000d44A59004Da54A005ffdcf9f";
+    const VERSION = '1.0.4'
     let accounts: any;
 
     /* const domainType = [
@@ -74,35 +71,32 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
         faizal = await accounts[4];
         snoopdog = await accounts[5];
 
-        const BaseImplementation = await ethers.getContractFactory("SmartWallet");
-        baseImpl = await BaseImplementation.deploy();
+        const EntryPoint = await ethers.getContractFactory("EntryPoint");
+        entryPoint = await EntryPoint.deploy();
+        await entryPoint.deployed();
+        console.log("Entry point deployed at: ", entryPoint.address);
+
+        const DefaultHandler = await ethers.getContractFactory(
+         "DefaultCallbackHandler"
+        );
+        handler = await DefaultHandler.deploy();
+        await handler.deployed();
+        console.log("Default callback handler deployed at: ", handler.address);
+
+        const BaseImplementation = await ethers.getContractFactory("SmartAccount");
+        baseImpl = await BaseImplementation.deploy(entryPoint.address);
         await baseImpl.deployed();
         console.log("base wallet impl deployed at: ", baseImpl.address);
 
-        const WalletFactory = await ethers.getContractFactory("WalletFactory");
-        walletFactory = await WalletFactory.deploy(baseImpl.address);
+        const WalletFactory = await ethers.getContractFactory("SmartAccountFactory");
+        walletFactory = await WalletFactory.deploy(baseImpl.address, handler.address);
         await walletFactory.deployed();
         console.log("wallet factory deployed at: ", walletFactory.address);
-
-        const EntryPointSA = await ethers.getContractFactory("EntryPointSA");
-        entryPoint = await EntryPointSA.deploy(
-            PAYMASTER_STAKE,
-            UNSTAKE_DELAY_SEC
-        );
-        await entryPoint.deployed();
-        console.log("Entry point deployed at: ", entryPoint.address);
 
         const TestToken = await ethers.getContractFactory("TestToken");
         token = await TestToken.deploy();
         await token.deployed();
         console.log("Test token deployed at: ", token.address);
-
-        const DefaultHandler = await ethers.getContractFactory(
-            "DefaultCallbackHandler"
-        );
-        handler = await DefaultHandler.deploy();
-        await handler.deployed();
-        console.log("Default callback handler deployed at: ", handler.address);
 
         const FallbackGasTank = await ethers.getContractFactory(
             "FallbackGasTank"
@@ -142,16 +136,14 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
         await expect(
             walletFactory.deployCounterFactualWallet(
                 owner,
-                entryPoint.address,
-                handler.address,
                 0
             )
         )
-            .to.emit(walletFactory, "WalletCreated")
+            .to.emit(walletFactory, "SmartAccountCreated")
             .withArgs(expected, baseImpl.address, owner, VERSION, 0);
 
         userSCW = await ethers.getContractAt(
-            "contracts/test/smart-contract-wallet/SmartWallet.sol:SmartWallet",
+            "contracts/test/smart-contract-wallet/SmartAccount.sol:SmartAccount",
             expected
         );
 
@@ -260,7 +252,6 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
 
         const execTransaction = await userSCW.populateTransaction.execTransaction(
             transaction,
-            0,
             refundInfo,
             signature
         )
@@ -364,7 +355,6 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
 
         const execTransaction = await userSCW.populateTransaction.execTransaction(
             transaction,
-            0,
             refundInfo,
             signature
         )
@@ -455,7 +445,6 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
 
         const execTransaction = await userSCW.populateTransaction.execTransaction(
             transaction,
-            0,
             refundInfo,
             signature
         )
@@ -592,13 +581,13 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
             buildContractCall(
               walletFactory,
               "deployCounterFactualWallet",
-              [owner, entryPoint.address, handler.address, 10],
+              [owner, 10],
               0
             ),
             buildContractCall(
               userSCW,
               "execTransaction",
-              [transaction, 1, refundInfo, signature],
+              [transaction, refundInfo, signature],
               0
             ),
           ];
@@ -646,7 +635,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
             )
         ).to.emit(relayGasTank, "GaslessTxExecuted")
             .to.emit(userSCW, "ExecutionSuccess") //.withArgs(relayerAddress, userSCW.address)
-             .to.emit(walletFactory,"WalletCreated"); //.withArgs
+             .to.emit(walletFactory,"SmartAccountCreated"); //.withArgs
 
         // get payment from event logs
 

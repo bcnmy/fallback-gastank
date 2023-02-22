@@ -2,34 +2,35 @@
 pragma solidity 0.8.12;
 
 import "./Proxy.sol";
-import "./BaseSmartWallet.sol"; 
+import "./BaseSmartAccount.sol"; 
 
-contract WalletFactory {
-    address immutable public _defaultImpl; 
+contract SmartAccountFactory {
+    address immutable public _defaultImpl;
+    address immutable public _defaultFallbackHandler; 
 
     // EOA + Version tracking
-    string public constant VERSION = "1.0.1";
+    string public constant VERSION = "1.0.4";
 
     //states : registry
-    mapping (address => bool) public isWalletExist;
+    // review need and impact of this update wallet -> account
+    mapping (address => bool) public isAccountExist;
 
-    constructor(address _baseImpl) {
-        require(_baseImpl != address(0), "base wallet address can not be zero");
+    constructor(address _baseImpl, address _handler) {
+        require(_baseImpl != address(0), "base wallet address 0");
         _defaultImpl = _baseImpl;
+        require(_handler != address(0), "default fallback handler 0");
+        _defaultFallbackHandler = _handler;
     }
 
-    // event WalletCreated(address indexed _proxy, address indexed _implementation, address indexed _owner);
-    // EOA + Version tracking
-    event WalletCreated(address indexed _proxy, address indexed _implementation, address indexed _owner, string version, uint256 _index);
+    // Review event
+    event SmartAccountCreated(address indexed _proxy, address indexed _implementation, address indexed _owner, string version, uint256 _index);
 
     /**
      * @notice Deploys wallet using create2 and points it to _defaultImpl
      * @param _owner EOA signatory of the wallet
-     * @param _entryPoint AA 4337 entry point address
-     * @param _handler fallback handler address
      * @param _index extra salt that allows to deploy more wallets if needed for same EOA (default 0)
      */
-    function deployCounterFactualWallet(address _owner, address _entryPoint, address _handler, uint _index) public returns(address proxy){
+    function deployCounterFactualWallet(address _owner, uint _index) public returns(address proxy){
         bytes32 salt = keccak256(abi.encodePacked(_owner, address(uint160(_index))));
         bytes memory deploymentData = abi.encodePacked(type(Proxy).creationCode, uint(uint160(_defaultImpl)));
         // solhint-disable-next-line no-inline-assembly
@@ -38,25 +39,23 @@ contract WalletFactory {
         }
         require(address(proxy) != address(0), "Create2 call failed");
         // EOA + Version tracking
-        emit WalletCreated(proxy,_defaultImpl,_owner, VERSION, _index);
-        BaseSmartWallet(proxy).init(_owner, _entryPoint, _handler);
-        isWalletExist[proxy] = true;
+        emit SmartAccountCreated(proxy,_defaultImpl,_owner, VERSION, _index);
+        BaseSmartAccount(proxy).init(_owner, _defaultFallbackHandler);
+        isAccountExist[proxy] = true;
     }
 
     /**
      * @notice Deploys wallet using create and points it to _defaultImpl
      * @param _owner EOA signatory of the wallet
-     * @param _entryPoint AA 4337 entry point address
-     * @param _handler fallback handler address
     */ 
-    function deployWallet(address _owner, address _entryPoint, address _handler) public returns(address proxy){ 
+    function deployWallet(address _owner) public returns(address proxy){ 
         bytes memory deploymentData = abi.encodePacked(type(Proxy).creationCode, uint(uint160(_defaultImpl)));
         // solhint-disable-next-line no-inline-assembly
         assembly {
             proxy := create(0x0, add(0x20, deploymentData), mload(deploymentData))
         }
-        BaseSmartWallet(proxy).init(_owner, _entryPoint, _handler);
-        isWalletExist[proxy] = true;
+        BaseSmartAccount(proxy).init(_owner, _defaultFallbackHandler);
+        isAccountExist[proxy] = true;
     }
 
     /**

@@ -71,17 +71,17 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
         faizal = await accounts[4];
         snoopdog = await accounts[5];
 
-        const EntryPoint = await ethers.getContractFactory("EntryPoint");
+        const EntryPoint = await ethers.getContractFactory("EntryPointLocal");
         entryPoint = await EntryPoint.deploy();
         await entryPoint.deployed();
         console.log("Entry point deployed at: ", entryPoint.address);
 
-        const DefaultHandler = await ethers.getContractFactory(
+        /*const DefaultHandler = await ethers.getContractFactory(
          "DefaultCallbackHandler"
         );
         handler = await DefaultHandler.deploy();
         await handler.deployed();
-        console.log("Default callback handler deployed at: ", handler.address);
+        console.log("Default callback handler deployed at: ", handler.address);*/
 
         const BaseImplementation = await ethers.getContractFactory("SmartAccount");
         baseImpl = await BaseImplementation.deploy(entryPoint.address);
@@ -89,7 +89,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
         console.log("base wallet impl deployed at: ", baseImpl.address);
 
         const WalletFactory = await ethers.getContractFactory("SmartAccountFactory");
-        walletFactory = await WalletFactory.deploy(baseImpl.address, handler.address);
+        walletFactory = await WalletFactory.deploy(baseImpl.address);
         await walletFactory.deployed();
         console.log("wallet factory deployed at: ", walletFactory.address);
 
@@ -139,8 +139,8 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
                 0
             )
         )
-            .to.emit(walletFactory, "SmartAccountCreated")
-            .withArgs(expected, baseImpl.address, owner, VERSION, 0);
+            .to.emit(walletFactory, "AccountCreation")
+            .withArgs(expected, owner, 0);
 
         userSCW = await ethers.getContractAt(
             "contracts/test/smart-contract-wallet/SmartAccount.sol:SmartAccount",
@@ -635,7 +635,7 @@ describe("Singleton GasTank relaying to a Smart Account", function () {
             )
         ).to.emit(relayGasTank, "GaslessTxExecuted")
             .to.emit(userSCW, "ExecutionSuccess") //.withArgs(relayerAddress, userSCW.address)
-             .to.emit(walletFactory,"SmartAccountCreated"); //.withArgs
+             .to.emit(walletFactory,"AccountCreation"); //.withArgs
 
         // get payment from event logs
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-pragma solidity ^0.8.12;
+pragma solidity 0.8.17;
 
 import "../core/BasePaymaster.sol";
 
@@ -8,14 +8,25 @@ import "../core/BasePaymaster.sol";
  */
 contract TestExpirePaymaster is BasePaymaster {
     // solhint-disable no-empty-blocks
-    constructor(IEntryPoint _entryPoint) BasePaymaster(_entryPoint)
-    {}
+    constructor(IEntryPoint _entryPoint) BasePaymaster(_entryPoint) {}
 
-    function validatePaymasterUserOp(UserOperation calldata userOp, bytes32 userOpHash, uint maxCost) external virtual override view
-    returns (bytes memory context, uint256 sigTimeRange) {
+    function _validatePaymasterUserOp(
+        UserOperation calldata userOp,
+        bytes32 userOpHash,
+        uint256 maxCost
+    )
+        internal
+        view
+        virtual
+        override
+        returns (bytes memory context, uint256 validationData)
+    {
         (userOp, userOpHash, maxCost);
-        (uint64 validAfter, uint64 validUntil) = abi.decode(userOp.paymasterAndData[20 :], (uint64, uint64));
-        sigTimeRange = packSigTimeRange(false, validUntil, validAfter);
+        (uint48 validAfter, uint48 validUntil) = abi.decode(
+            userOp.paymasterAndData[20:],
+            (uint48, uint48)
+        );
+        validationData = _packValidationData(false, validUntil, validAfter);
         context = "";
     }
 }

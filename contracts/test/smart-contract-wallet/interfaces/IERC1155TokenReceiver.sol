@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: LGPL-3.0-only
-pragma solidity 0.8.12;
+pragma solidity 0.8.17;
 
 /**
     Note: The ERC-165 identifier for this interface is 0x4e2312e0.
 */
-interface ERC1155TokenReceiver {
+interface IERC1155TokenReceiver {
     /**
         @notice Handle the receipt of a single ERC1155 token type.
         @dev An ERC1155-compliant smart contract MUST call this function on the token recipient contract, at the end of a `safeTransferFrom` after the balance has been updated.        

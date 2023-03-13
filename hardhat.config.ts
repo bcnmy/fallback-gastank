@@ -30,6 +30,12 @@ const config: HardhatUserConfig = {
   solidity: {
     compilers: [
       {
+        version: "0.8.17",
+        settings: {
+          optimizer: { enabled: true, runs: 800 },
+        },
+      },
+      {
         version: "0.8.12",
         settings: {
           optimizer: { enabled: true, runs: 200 },
@@ -239,7 +245,7 @@ const config: HardhatUserConfig = {
     currency: "USD",
   },
   etherscan: {
-    apiKey: process.env.ETHERSCAN_API_KEY,
+    apiKey: process.env.POLYGONSCAN_API_KEY,
   },
 };
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.12;
+pragma solidity 0.8.17;
 
 //sample "receiver" contract, for testing "exec" from account.
 contract TestCounter {
@@ -7,7 +7,10 @@ contract TestCounter {
 
     function count() public {
         counters[msg.sender] = counters[msg.sender] + 1;
+    }
 
+    function countFail() public pure {
+        revert("count failed");
     }
 
     function justemit() public {

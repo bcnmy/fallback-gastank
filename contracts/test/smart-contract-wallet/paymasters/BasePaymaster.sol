@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.12;
-
+pragma solidity 0.8.17;
 
 /* solhint-disable reason-string */
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@account-abstraction/contracts/interfaces/IPaymaster.sol";
-import "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IPaymaster} from "@account-abstraction/contracts/interfaces/IPaymaster.sol";
+import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
+import {UserOperation, UserOperationLib} from "@account-abstraction/contracts/interfaces/UserOperation.sol";
+import {BaseSmartAccountErrors} from "../common/Errors.sol";
+import "@account-abstraction/contracts/core/Helpers.sol";
 
 /**
  * Helper class for creating a paymaster.
  * provides helper methods for staking.
  * validates that the postOp is called only by the entryPoint
  */
-// Could have Ownable2Step 
-abstract contract BasePaymaster is IPaymaster, Ownable {
-
-    IEntryPoint immutable public entryPoint;
+// @notice Could have Ownable2Step
+abstract contract BasePaymaster is IPaymaster, Ownable, BaseSmartAccountErrors {
+    IEntryPoint public immutable entryPoint;
 
     constructor(address _owner, IEntryPoint _entryPoint) {
         entryPoint = _entryPoint;
@@ -24,17 +25,27 @@ abstract contract BasePaymaster is IPaymaster, Ownable {
     }
 
     /// @inheritdoc IPaymaster
-    function validatePaymasterUserOp(UserOperation calldata userOp, bytes32 userOpHash, uint256 maxCost)
-    external override returns (bytes memory context, uint256 sigTimeRange) {
-         _requireFromEntryPoint();
+    function validatePaymasterUserOp(
+        UserOperation calldata userOp,
+        bytes32 userOpHash,
+        uint256 maxCost
+    ) external override returns (bytes memory context, uint256 validationData) {
+        _requireFromEntryPoint();
         return _validatePaymasterUserOp(userOp, userOpHash, maxCost);
     }
 
-    function _validatePaymasterUserOp(UserOperation calldata userOp, bytes32 userOpHash, uint256 maxCost)
-    internal virtual returns (bytes memory context, uint256 sigTimeRange);
+    function _validatePaymasterUserOp(
+        UserOperation calldata userOp,
+        bytes32 userOpHash,
+        uint256 maxCost
+    ) internal virtual returns (bytes memory context, uint256 validationData);
 
     /// @inheritdoc IPaymaster
-    function postOp(PostOpMode mode, bytes calldata context, uint256 actualGasCost) external override {
+    function postOp(
+        PostOpMode mode,
+        bytes calldata context,
+        uint256 actualGasCost
+    ) external override {
         _requireFromEntryPoint();
         _postOp(mode, context, actualGasCost);
     }
@@ -51,9 +62,12 @@ abstract contract BasePaymaster is IPaymaster, Ownable {
      * @param context - the context value returned by validatePaymasterUserOp
      * @param actualGasCost - actual gas used so far (without this postOp call).
      */
-    function _postOp(PostOpMode mode, bytes calldata context, uint256 actualGasCost) internal virtual {
-
-        (mode,context,actualGasCost); // unused params
+    function _postOp(
+        PostOpMode mode,
+        bytes calldata context,
+        uint256 actualGasCost
+    ) internal virtual {
+        (mode, context, actualGasCost); // unused params
         // subclass must override this method if validatePaymasterUserOp returns a context
         revert("must override");
     }
@@ -61,25 +75,25 @@ abstract contract BasePaymaster is IPaymaster, Ownable {
     /**
      * add a deposit for this paymaster, used for paying for transaction fees
      */
-    function deposit() public virtual payable {
-        entryPoint.depositTo{value : msg.value}(address(this));
-    }
+    function deposit() external payable virtual;
 
     /**
      * withdraw value from the deposit
      * @param withdrawAddress target to send to
      * @param amount to withdraw
      */
-    function withdrawTo(address payable withdrawAddress, uint256 amount) public virtual onlyOwner {
-        entryPoint.withdrawTo(withdrawAddress, amount);
-    }
+    function withdrawTo(
+        address payable withdrawAddress,
+        uint256 amount
+    ) external virtual;
+
     /**
      * add stake for this paymaster.
      * This method can also carry eth value to add to the current stake.
      * @param unstakeDelaySec - the unstake delay for this paymaster. Can only be increased.
      */
     function addStake(uint32 unstakeDelaySec) external payable onlyOwner {
-        entryPoint.addStake{value : msg.value}(unstakeDelaySec);
+        entryPoint.addStake{value: msg.value}(unstakeDelaySec);
     }
 
     /**
@@ -108,6 +122,8 @@ abstract contract BasePaymaster is IPaymaster, Ownable {
 
     /// validate the call is made from a valid entrypoint
     function _requireFromEntryPoint() internal virtual {
-        require(msg.sender == address(entryPoint));
+        // require(msg.sender == address(entryPoint), "Sender not EntryPoint"); // won't need BaseSmartAccountErrors import
+        if (msg.sender != address(entryPoint))
+            revert CallerIsNotAnEntryPoint(msg.sender);
     }
 }
